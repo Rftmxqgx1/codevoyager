@@ -1,24 +1,31 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, memo } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 
 // =============================================================================
 // CODEVOYAGER - Enterprise Application
-// Minimal clean interface, functional only
+// SUS-002: Optimized Rendering with React.memo and useMemo
+// MET-002: 1.2s Render Speed target
 // =============================================================================
 
-// Simple Login Form
-const LoginForm = ({ onLogin }) => {
+// Simple Login Form - SUS-002: Optimized with React.memo
+const LoginForm = memo(({ onLogin }) => {
   const [credentials, setCredentials] = useState({ username: '', password: '' });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // MET-002: Optimized form submission with useMemo
+  const formValidation = useMemo(() => ({
+    isValid: credentials.username && credentials.password,
+    errorMessage: !credentials.username || !credentials.password ? 'Please enter both username and password' : ''
+  }), [credentials.username, credentials.password]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setIsLoading(true);
 
-    if (!credentials.username || !credentials.password) {
-      setError('Please enter both username and password');
+    if (!formValidation.isValid) {
+      setError(formValidation.errorMessage);
       setIsLoading(false);
       return;
     }
@@ -91,30 +98,28 @@ const LoginForm = ({ onLogin }) => {
       </div>
     </div>
   );
-};
+});
 
-// Simple Signup Form
-const SignupForm = ({ onSignup }) => {
+// Simple Signup Form - SUS-002: Optimized with React.memo
+const SignupForm = memo(({ onSignup }) => {
   const [formData, setFormData] = useState({ username: '', password: '', confirmPassword: '' });
   const [error, setError] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  // MET-002: Optimized validation with useMemo
+  const formValidation = useMemo(() => ({
+    isValid: formData.username && formData.password && formData.password === formData.confirmPassword && formData.password.length >= 6,
+    errorMessage: !formData.username || !formData.password ? 'Please fill in all fields' :
+                  formData.password !== formData.confirmPassword ? 'Passwords do not match' :
+                  formData.password.length < 6 ? 'Password must be at least 6 characters' : ''
+  }), [formData.username, formData.password, formData.confirmPassword]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
 
-    if (!formData.username || !formData.password) {
-      setError('Please fill in all fields');
-      return;
-    }
-
-    if (formData.password !== formData.confirmPassword) {
-      setError('Passwords do not match');
-      return;
-    }
-
-    if (formData.password.length < 6) {
-      setError('Password must be at least 6 characters');
+    if (!formValidation.isValid) {
+      setError(formValidation.errorMessage);
       return;
     }
 
@@ -198,10 +203,26 @@ const SignupForm = ({ onSignup }) => {
       </div>
     </div>
   );
-};
+});
 
-// Simple Dashboard
-const Dashboard = ({ user, onLogout }) => {
+// Simple Dashboard - SUS-002: Optimized with React.memo
+const Dashboard = memo(({ user, onLogout }) => {
+  // MET-002: Optimized dashboard data with useMemo
+  const dashboardData = useMemo(() => ({
+    stats: [
+      { label: 'System Status', value: 'Operational', color: '#4caf50' },
+      { label: 'Active Users', value: '1,247', color: '#1976d2' },
+      { label: 'Uptime', value: '99.9%', color: '#1976d2' },
+      { label: 'Response Time', value: '1.2s', color: '#1976d2' }
+    ],
+    actions: [
+      'View Reports',
+      'Manage Users', 
+      'System Settings',
+      'Support'
+    ]
+  }), []);
+
   return (
     <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '40px', paddingBottom: '20px', borderBottom: '1px solid #ddd' }}>
@@ -226,47 +247,27 @@ const Dashboard = ({ user, onLogout }) => {
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '20px' }}>
-        <div style={{ padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#f5f5f5' }}>
-          <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#666' }}>System Status</h3>
-          <p style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#4caf50' }}>Operational</p>
-        </div>
-        
-        <div style={{ padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#f5f5f5' }}>
-          <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#666' }}>Active Users</h3>
-          <p style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#1976d2' }}>1,247</p>
-        </div>
-        
-        <div style={{ padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#f5f5f5' }}>
-          <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#666' }}>Uptime</h3>
-          <p style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#1976d2' }}>99.9%</p>
-        </div>
-        
-        <div style={{ padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#f5f5f5' }}>
-          <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#666' }}>Response Time</h3>
-          <p style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: '#1976d2' }}>1.2s</p>
-        </div>
+        {dashboardData.stats.map((stat, idx) => (
+          <div key={idx} style={{ padding: '20px', border: '1px solid #ddd', borderRadius: '8px', backgroundColor: '#f5f5f5' }}>
+            <h3 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#666' }}>{stat.label}</h3>
+            <p style={{ margin: 0, fontSize: '24px', fontWeight: 'bold', color: stat.color }}>{stat.value}</p>
+          </div>
+        ))}
       </div>
 
       <div style={{ marginTop: '40px', padding: '20px', border: '1px solid #ddd', borderRadius: '8px' }}>
         <h3 style={{ margin: '0 0 20px 0', fontFamily: 'Arial, sans-serif' }}>Quick Actions</h3>
         <div style={{ display: 'flex', gap: '15px', flexWrap: 'wrap' }}>
-          <button style={{ padding: '12px 24px', backgroundColor: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-            View Reports
-          </button>
-          <button style={{ padding: '12px 24px', backgroundColor: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-            Manage Users
-          </button>
-          <button style={{ padding: '12px 24px', backgroundColor: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-            System Settings
-          </button>
-          <button style={{ padding: '12px 24px', backgroundColor: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-            Support
-          </button>
+          {dashboardData.actions.map((action, idx) => (
+            <button key={idx} style={{ padding: '12px 24px', backgroundColor: '#1976d2', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+              {action}
+            </button>
+          ))}
         </div>
       </div>
     </div>
   );
-};
+});
 
 // Main App
 const App = () => {

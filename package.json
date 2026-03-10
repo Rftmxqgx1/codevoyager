@@ -1,7 +1,7 @@
 {
   "name": "codevoyager-app",
   "version": "1.0.0",
-  "description": "CodeVoyager React Application with Dark Mode and Hardened Login",
+  "description": "CodeVoyager React Application with Enterprise Features",
   "main": "src/web/app.jsx",
   "scripts": {
     "start": "react-scripts start",
@@ -9,13 +9,18 @@
     "test": "react-scripts test",
     "eject": "react-scripts eject",
     "dev": "react-scripts start",
-    "verify-specs": "node scripts/verify-specifications.js"
+    "verify-specs": "node scripts/verify-specifications.js",
+    "scraper": "node src/web/scraper.js",
+    "processor": "node src/web/processor.js",
+    "monitor": "node src/web/monitoring.js"
   },
   "dependencies": {
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0",
-    "react-scripts": "5.0.1"
+    "react-scripts": "5.0.1",
+    "axios": "^1.6.0",
+    "cheerio": "^1.0.0-rc.12"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^5.16.4",
