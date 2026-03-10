@@ -1,78 +1,90 @@
 version: '3.8'
 
 services:
-  codevoyager-app:
+  # Main Application Container
+  app:
     build:
       context: .
       dockerfile: Dockerfile
+    container_name: codevoyager-main
     ports:
       - "3000:80"
+    volumes:
+      - app-backup:/backup
+      - ./src:/app/src:ro
+      - ./governance:/app/governance:ro
+      - ./logs:/app/logs:ro
+      - ./strategy:/app/strategy:ro
     environment:
       - NODE_ENV=production
       - REACT_APP_ENV=production
-    volumes:
-      - ./backup:/backup
-      - ./logs:/app/logs
-      - ./governance:/app/governance
-      - ./strategy:/app/strategy
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      test: ["CMD", "curl", "-f", "http://localhost:80/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
     networks:
-      - codevoyager-network
+      - codevoyager-net
 
-  # Backup service
-  codevoyager-backup:
+  # Backup Sub-container
+  backup:
     image: alpine:latest
+    container_name: codevoyager-backup
     volumes:
-      - .:/source
-      - ./backup:/backup
+      - app-backup:/backup
+      - .:/source:ro
     command: |
-      sh -c "
+      sh -c '
         apk add --no-cache tar gzip
+        echo "Backup service ready"
         while true; do
-          echo 'Creating backup...'
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "Creating backup at $$TIMESTAMP..."
           cd /source
-          tar -czf /backup/codevoyager-backup-$$(date +%Y%m%d-%H%M%S).tar.gz \
+          tar -czf /backup/codevoyager-backup-$$TIMESTAMP.tar.gz \
             --exclude=node_modules \
             --exclude=.git \
             --exclude=backup \
-            --exclude='*.log' \
-            .
-          echo 'Backup completed'
+            --exclude=app-backup \
+            . 2>/dev/null && echo "Backup completed: /backup/codevoyager-backup-$$TIMESTAMP.tar.gz"
           sleep 3600
         done
-      "
+      '
     restart: unless-stopped
     depends_on:
-      - codevoyager-app
+      - app
     networks:
-      - codevoyager-network
+      - codevoyager-net
 
-  # Monitoring service
-  codevoyager-monitor:
-    image: node:18-alpine
-    volumes:
-      - .:/app
-    working_dir: /app
+  # Health Monitor Sub-container
+  monitor:
+    image: alpine:latest
+    container_name: codevoyager-health
     command: |
-      sh -c "
-        npm install -g pm2
-        pm2 start scripts/verify-specifications.js --name spec-checker --cron '0 */6 * * *'
-        pm2 logs
-      "
+      sh -c '
+        apk add --no-cache curl
+        echo "Health monitor started"
+        while true; do
+          if curl -f http://app:80/health > /dev/null 2>&1; then
+            echo "$(date): App is healthy"
+          else
+            echo "$(date): WARNING - App health check failed"
+          fi
+          sleep 60
+        done
+      '
     restart: unless-stopped
+    depends_on:
+      - app
     networks:
-      - codevoyager-network
-
-networks:
-  codevoyager-network:
-    driver: bridge
+      - codevoyager-net
 
 volumes:
-  backup-data:
+  app-backup:
     driver: local
+
+networks:
+  codevoyager-net:
+    driver: bridge
