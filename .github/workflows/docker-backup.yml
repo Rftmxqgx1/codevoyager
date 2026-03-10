@@ -1,0 +1,181 @@
+name: Docker Backup and Restore
+
+on:
+  schedule:
+    # Run backup daily at 2 AM UTC
+    - cron: '0 2 * * *'
+  workflow_dispatch:
+    inputs:
+      backup_type:
+        description: 'Type of backup to create'
+        required: true
+        default: 'full'
+        type: choice
+        options:
+        - full
+        - incremental
+      restore:
+        description: 'Restore from backup (true/false)'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  BACKUP_DIR: /tmp/codevoyager-backups
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  create-backup:
+    runs-on: ubuntu-latest
+    name: Create Docker Backup
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Create backup directory
+      run: mkdir -p ${{ env.BACKUP_DIR }}
+      
+    - name: Pull latest Docker image
+      run: |
+        docker pull ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest || true
+        
+    - name: Create project backup
+      run: |
+        TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+        BACKUP_FILE="${{ env.BACKUP_DIR }}/codevoyager-backup-${TIMESTAMP}.tar.gz"
+        
+        tar -czf "$BACKUP_FILE" \
+          --exclude=node_modules \
+          --exclude=.git \
+          --exclude=backup \
+          --exclude='*.log' \
+          --exclude=.dockerignore \
+          .
+          
+        echo "BACKUP_FILE=$BACKUP_FILE" >> $GITHUB_ENV
+        echo "TIMESTAMP=$TIMESTAMP" >> $GITHUB_ENV
+        
+    - name: Create Docker image backup
+      run: |
+        if docker images | grep -q "${{ env.IMAGE_NAME }}"; then
+          docker save ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest | gzip > "${{ env.BACKUP_DIR }}/docker-image-${{ env.TIMESTAMP }}.tar.gz"
+        fi
+        
+    - name: Upload backup artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: docker-backup-${{ env.TIMESTAMP }}
+        path: ${{ env.BACKUP_DIR }}/
+        retention-days: 30
+        
+    - name: Create backup manifest
+      run: |
+        cat > "${{ env.BACKUP_DIR }}/backup-manifest-${{ env.TIMESTAMP }}.json" << EOF
+        {
+          "timestamp": "${{ env.TIMESTAMP }}",
+          "commit": "${{ github.sha }}",
+          "branch": "${{ github.ref_name }}",
+          "backup_type": "${{ github.event.inputs.backup_type || 'scheduled' }}",
+          "files": [
+            "codevoyager-backup-${{ env.TIMESTAMP }}.tar.gz",
+            "docker-image-${{ env.TIMESTAMP }}.tar.gz"
+          ],
+          "checksums": {
+            "project": "$(sha256sum "${{ env.BACKUP_FILE }}" | cut -d' ' -f1)",
+            "docker_image": "$(if [ -f "${{ env.BACKUP_DIR }}/docker-image-${{ env.TIMESTAMP }}.tar.gz" ]; then sha256sum "${{ env.BACKUP_DIR }}/docker-image-${{ env.TIMESTAMP }}.tar.gz" | cut -d' ' -f1; else echo "N/A"; fi)"
+          }
+        }
+        EOF
+        
+    - name: Upload backup manifest
+      uses: actions/upload-artifact@v4
+      with:
+        name: backup-manifest-${{ env.TIMESTAMP }}
+        path: "${{ env.BACKUP_DIR }}/backup-manifest-${{ env.TIMESTAMP }}.json"
+        retention-days: 90
+
+  restore-backup:
+    runs-on: ubuntu-latest
+    name: Restore from Backup
+    if: github.event.inputs.restore == 'true'
+    needs: create-backup
+    
+    steps:
+    - name: List available backups
+      run: |
+        echo "Available backup artifacts:"
+        gh run list --repo ${{ github.repository }} --workflow="Docker Backup and Restore" --json databaseId,headBranch,createdAt --jq '.[] | "Run ID: \(.databaseId), Branch: \(.headBranch), Created: \(.createdAt)"'
+        
+    - name: Download latest backup
+      uses: actions/download-artifact@v4
+      with:
+        pattern: docker-backup-*
+        merge-multiple: true
+        
+    - name: Restore project files
+      run: |
+        LATEST_BACKUP=$(ls -t codevoyager-backup-*.tar.gz | head -n1)
+        echo "Restoring from: $LATEST_BACKUP"
+        tar -xzf "$LATEST_BACKUP" -C . || echo "Some files may already exist"
+        
+    - name: Restore Docker image (if exists)
+      run: |
+        LATEST_DOCKER_BACKUP=$(ls -t docker-image-*.tar.gz 2>/dev/null | head -n1 || echo "")
+        if [ ! -z "$LATEST_DOCKER_BACKUP" ]; then
+          echo "Restoring Docker image from: $LATEST_DOCKER_BACKUP"
+          docker load < "$LATEST_DOCKER_BACKUP"
+        else
+          echo "No Docker image backup found"
+        fi
+        
+    - name: Verify restoration
+      run: |
+        echo "Restoration completed. Verifying..."
+        if [ -f "package.json" ] && [ -f "src/web/app.jsx" ]; then
+          echo "✅ Project files restored successfully"
+        else
+          echo "❌ Project restoration failed"
+          exit 1
+        fi
+        
+        if docker images | grep -q "${{ env.IMAGE_NAME }}"; then
+          echo "✅ Docker image restored successfully"
+        else
+          echo "⚠️ Docker image not restored (may not have existed)"
+        fi
+
+  cleanup-old-backups:
+    runs-on: ubuntu-latest
+    name: Cleanup Old Backups
+    if: github.event_name == 'schedule'
+    
+    steps:
+    - name: Clean up old artifacts
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const artifacts = await github.rest.actions.listArtifactsForRepo({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            per_page: 100
+          });
+          
+          const cutoffDate = new Date();
+          cutoffDate.setDate(cutoffDate.getDate() - 30); // Keep last 30 days
+          
+          for (const artifact of artifacts.data.artifacts) {
+            if (artifact.name.startsWith('docker-backup-') || 
+                artifact.name.startsWith('backup-manifest-')) {
+              const createdDate = new Date(artifact.created_at);
+              if (createdDate < cutoffDate) {
+                console.log(`Deleting old artifact: ${artifact.name} (${artifact.created_at})`);
+                await github.rest.actions.deleteArtifact({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  artifact_id: artifact.id
+                });
+              }
+            }
+          }

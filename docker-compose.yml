@@ -1,0 +1,78 @@
+version: '3.8'
+
+services:
+  codevoyager-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_ENV=production
+    volumes:
+      - ./backup:/backup
+      - ./logs:/app/logs
+      - ./governance:/app/governance
+      - ./strategy:/app/strategy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - codevoyager-network
+
+  # Backup service
+  codevoyager-backup:
+    image: alpine:latest
+    volumes:
+      - .:/source
+      - ./backup:/backup
+    command: |
+      sh -c "
+        apk add --no-cache tar gzip
+        while true; do
+          echo 'Creating backup...'
+          cd /source
+          tar -czf /backup/codevoyager-backup-$$(date +%Y%m%d-%H%M%S).tar.gz \
+            --exclude=node_modules \
+            --exclude=.git \
+            --exclude=backup \
+            --exclude='*.log' \
+            .
+          echo 'Backup completed'
+          sleep 3600
+        done
+      "
+    restart: unless-stopped
+    depends_on:
+      - codevoyager-app
+    networks:
+      - codevoyager-network
+
+  # Monitoring service
+  codevoyager-monitor:
+    image: node:18-alpine
+    volumes:
+      - .:/app
+    working_dir: /app
+    command: |
+      sh -c "
+        npm install -g pm2
+        pm2 start scripts/verify-specifications.js --name spec-checker --cron '0 */6 * * *'
+        pm2 logs
+      "
+    restart: unless-stopped
+    networks:
+      - codevoyager-network
+
+networks:
+  codevoyager-network:
+    driver: bridge
+
+volumes:
+  backup-data:
+    driver: local
