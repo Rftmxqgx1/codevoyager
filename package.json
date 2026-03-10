@@ -12,7 +12,8 @@
     "verify-specs": "node scripts/verify-specifications.js",
     "scraper": "node src/web/scraper.js",
     "processor": "node src/web/processor.js",
-    "monitor": "node src/web/monitoring.js"
+    "monitor": "node src/web/monitoring.js",
+    "init-data": "node src/web/init-data.js"
   },
   "dependencies": {
     "react": "^18.2.0",
