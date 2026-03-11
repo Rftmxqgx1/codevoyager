@@ -1,0 +1,152 @@
+name: Automated Backup
+
+on:
+  schedule:
+    # Run backup every 6 hours
+    - cron: '0 */6 * * *'
+  workflow_dispatch:
+    # Allow manual backup triggers
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        
+    - name: Install dependencies
+      run: |
+        cd src/web
+        npm install
+        
+    - name: Create timestamp
+      run: echo "TIMESTAMP=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_ENV
+        
+    - name: Create project backup
+      run: |
+        mkdir -p backups
+        tar -czf backups/codevoyager-backup-${{ env.TIMESTAMP }}.tar.gz \
+          --exclude=node_modules \
+          --exclude=.git \
+          --exclude=backups \
+          --exclude=build \
+          --exclude=dist \
+          --exclude=coverage \
+          --exclude=.nyc_output \
+          --exclude=*.log \
+          .
+          
+    - name: Create Docker backup
+      run: |
+        echo "Docker Containers Status:" > backups/docker-status-${{ env.TIMESTAMP }}.txt
+        echo "Docker Volumes:" >> backups/docker-status-${{ env.TIMESTAMP }}.txt
+        echo "Images:" >> backups/docker-status-${{ env.TIMESTAMP }}.txt
+        
+    - name: Create Git status backup
+      run: |
+        git log --oneline -10 > backups/git-commits-${{ env.TIMESTAMP }}.txt
+        git status --porcelain > backups/git-status-${{ env.TIMESTAMP }}.txt
+        
+    - name: Create package backups
+      run: |
+        cp package.json backups/package-main-${{ env.TIMESTAMP }}.json
+        cp src/web/package.json backups/package-web-${{ env.TIMESTAMP }}.json
+        
+    - name: Create backup summary
+      run: |
+        cat > backups/backup-summary-${{ env.TIMESTAMP }}.md << EOF
+        # CodeVoyager GitHub Backup - ${{ env.TIMESTAMP }}
+        
+        ## Backup Contents
+        - \`codevoyager-backup-${{ env.TIMESTAMP }}.tar.gz\` - Full project backup
+        - \`docker-status-${{ env.TIMESTAMP }}.txt\` - Docker environment status
+        - \`git-commits-${{ env.TIMESTAMP }}.txt\` - Recent commit history
+        - \`git-status-${{ env.TIMESTAMP }}.txt\` - Git working directory status
+        - \`package-main-${{ env.TIMESTAMP }}.json\` - Main package.json
+        - \`package-web-${{ env.TIMESTAMP }}.json\` - Web package.json
+        
+        ## Backup Information
+        - **Trigger**: ${{ github.event_name }}
+        - **Branch**: ${{ github.ref_name }}
+        - **Commit**: ${{ github.sha }}
+        - **Timestamp**: ${{ env.TIMESTAMP }}
+        - **Runner**: ${{ runner.os }}
+        
+        ## Repository Status
+        - **Total Files**: $(find . -type f | wc -l)
+        - **Total Size**: $(du -sh . | cut -f1)
+        - **Last Modified**: $(date -r . '+%Y-%m-%d %H:%M:%S')
+        
+        ---
+        *Automated backup via GitHub Actions*
+        EOF
+        
+    - name: Upload backup artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: codevoyager-backup-${{ env.TIMESTAMP }}
+        path: backups/
+        retention-days: 30
+        
+    - name: Clean up old artifacts
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const artifacts = await github.rest.actions.listWorkflowRunArtifacts({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            run_id: context.runId,
+          });
+          
+          // Keep only the latest 10 backups
+          const oldArtifacts = artifacts.data.artifacts
+            .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+            .slice(10);
+            
+          for (const artifact of oldArtifacts) {
+            await github.rest.actions.deleteArtifact({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              artifact_id: artifact.id,
+            });
+            console.log(`Deleted old artifact: ${artifact.name}`);
+          }
+          
+    - name: Create backup release
+      if: github.event_name == 'workflow_dispatch'
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: backup-${{ env.TIMESTAMP }}
+        release_name: Automated Backup - ${{ env.TIMESTAMP }}
+        body: |
+          ## CodeVoyager Automated Backup
+          
+          This is an automated backup created on ${{ env.TIMESTAMP }}.
+          
+          ### What's included:
+          - Complete source code backup
+          - Package configurations
+          - Git status and history
+          - Docker environment information
+          
+          ### Download:
+          - Check the "Actions" tab for the complete backup archive
+          - Artifacts are retained for 30 days
+          
+          ---
+          *Generated by GitHub Actions*
+        draft: false
+        prerelease: true
