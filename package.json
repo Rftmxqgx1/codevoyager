@@ -6,9 +6,13 @@
   "scripts": {
     "start": "react-scripts start",
     "build": "react-scripts build",
-    "test": "react-scripts test",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
     "eject": "react-scripts eject",
     "dev": "react-scripts start",
+    "dev-full": "node start-dev.js",
+    "ws-server": "node src/web/server.js",
     "verify-specs": "node scripts/verify-specifications.js",
     "scraper": "node src/web/scraper.js",
     "processor": "node src/web/processor.js",
@@ -16,17 +20,21 @@
     "init-data": "node src/web/init-data.js"
   },
   "dependencies": {
+    "axios": "^1.6.0",
+    "chart.js": "^4.5.1",
+    "cheerio": "^1.0.0-rc.12",
     "react": "^18.2.0",
+    "react-chartjs-2": "^5.3.1",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.8.0",
     "react-scripts": "5.0.1",
-    "axios": "^1.6.0",
-    "cheerio": "^1.0.0-rc.12"
+    "recharts": "^3.8.0"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^5.16.4",
+    "@testing-library/jest-dom": "^5.17.0",
     "@testing-library/react": "^13.4.0",
-    "@testing-library/user-event": "^13.5.0"
+    "@testing-library/user-event": "^13.5.0",
+    "jest": "^27.5.1"
   },
   "browserslist": {
     "production": [

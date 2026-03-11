@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # Web Application Container
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    container_name: codevoyager-web
+    ports:
+      - "3000:80"
+    volumes:
+      - webapp-backup:/backup
+      - ./src/web/src:/app/src:ro
+      - ./src/web/public:/app/public:ro
+    environment:
+      - NODE_ENV=production
+      - REACT_APP_ENV=production
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:80/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - codevoyager-web-net
+
+  # Backup Sub-container
+  web-backup:
+    image: alpine:latest
+    container_name: codevoyager-web-backup
+    volumes:
+      - webapp-backup:/backup
+      - ./src/web:/source:ro
+    command: |
+      sh -c '
+        apk add --no-cache tar gzip
+        echo "Web backup service ready"
+        while true; do
+          TIMESTAMP=$(date +%Y%m%d-%H%M%S)
+          echo "Creating web backup at $$TIMESTAMP..."
+          cd /source
+          tar -czf /backup/codevoyager-web-backup-$$TIMESTAMP.tar.gz \
+            --exclude=node_modules \
+            --exclude=build \
+            --exclude=.git \
+            . 2>/dev/null && echo "Web backup completed: /backup/codevoyager-web-backup-$$TIMESTAMP.tar.gz"
+          sleep 3600
+        done
+      '
+    restart: unless-stopped
+    depends_on:
+      - webapp
+    networks:
+      - codevoyager-web-net
+
+  # Health Monitor Sub-container
+  web-monitor:
+    image: alpine:latest
+    container_name: codevoyager-web-health
+    command: |
+      sh -c '
+        apk add --no-cache curl
+        echo "Web health monitor started"
+        while true; do
+          if curl -f http://webapp:80/ > /dev/null 2>&1; then
+            echo "$(date): Web app is healthy"
+          else
+            echo "$(date): WARNING - Web app health check failed"
+          fi
+          sleep 60
+        done
+      '
+    restart: unless-stopped
+    depends_on:
+      - webapp
+    networks:
+      - codevoyager-web-net
+
+volumes:
+  webapp-backup:
+    driver: local
+
+networks:
+  codevoyager-web-net:
+    driver: bridge
